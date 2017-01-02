@@ -5,9 +5,12 @@
 [submodule "cwd"]
 	path = cwd
 	url = https://github.com/CarloWood/cwd.git
+	branch = master
 [submodule "ai-utils"]
 	path = utils
 	url = https://github.com/CarloWood/ai-utils.git
+	branch = master
 [submodule "ai-threadsafe"]
 	path = threadsafe
 	url = https://github.com/CarloWood/ai-threadsafe.git
+	branch = master

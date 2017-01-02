@@ -1,6 +1,7 @@
 ACLOCAL_AMFLAGS = @ACLOCAL_CWFLAGS@
+EXTRA_DIST = submodules.m4
 
-SUBDIRS = cwd utils threadsafe
+SUBDIRS = @CW_SUBDIRS@
 
 MAINTAINERCLEANFILES = \
 	$(srcdir)/aclocal.m4 \
@@ -8,6 +9,7 @@ MAINTAINERCLEANFILES = \
 	$(srcdir)/Makefile.in \
 	$(srcdir)/install-sh \
 	$(srcdir)/config.h.in \
+	$(srcdir)/config.h.in~ \
 	$(srcdir)/compile \
 	$(srcdir)/depcomp \
 	$(srcdir)/missing \
