@@ -11,3 +11,4 @@ install-sh
 ltmain.sh
 missing
 submodules.m4
+lt_init.m4
