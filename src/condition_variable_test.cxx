@@ -1,14 +1,16 @@
-#include "sys.h"
-#include "microbench/microbench.h"
-#include "threadsafe/AIReadWriteSpinLock.h"
-#include "debug.h"
-
 #include <iostream>
 #include <thread>
 #include <vector>
 #include <cassert>
+#include <cstddef>
+#include <atomic>
+#include <mutex>
+#include <condition_variable>
+#include <chrono>
+#include <cmath>
+#include <iomanip>
 
-#define DIRECT 1
+#define DIRECT 0
 
 int const number_of_threads = std::thread::hardware_concurrency();
 #if DIRECT
@@ -16,122 +18,163 @@ int constexpr n0 = 200000;
 #else
 int constexpr n0 = 150000000;
 #endif
-int constexpr n1 = 10000;
-int constexpr sn = 20;
+int constexpr sn = 25;
 int constexpr cache_linesize = 64;
 int constexpr max_align = alignof(std::max_align_t);
 int constexpr cache_line_dist = cache_linesize / max_align;
 
-std::atomic<int> thr_count;
-std::atomic<int> wait_in{0};
-std::atomic<int> wait_out{0};
-std::atomic<int> notify_one_calls{0};
-
-alignas(std::max_align_t) std::atomic_int volatile x{0};        // max_align is only 16 bytes.
-std::max_align_t seperation1[cache_line_dist - 1];              // Put 48 bytes in between.
-alignas(std::max_align_t) std::atomic_int volatile y{0};
-std::max_align_t seperation2[cache_line_dist - 1];              // Put 48 bytes in between.
-alignas(std::max_align_t) std::mutex m;
+// This doesn't seem to matter that much, but for the sake of precision,
+// put all atomic variables in different cache lines.
+alignas(std::max_align_t) std::atomic<int> thr_count;
 std::max_align_t seperation3[cache_line_dist - 1];              // Put 48 bytes in between.
-alignas(std::max_align_t) std::condition_variable cv;
+alignas(std::max_align_t) std::mutex m;
 std::max_align_t seperation4[cache_line_dist - 1];              // Put 48 bytes in between.
+alignas(std::max_align_t) std::condition_variable cv;
+std::max_align_t seperation5[cache_line_dist - 1];              // Put 48 bytes in between.
 alignas(std::max_align_t) std::atomic_int s_idle;
+std::max_align_t seperation6[cache_line_dist - 1];              // Put 48 bytes in between.
+alignas(std::max_align_t) std::atomic<int> notify_one_calls{0};
+std::max_align_t seperation7[cache_line_dist - 1];              // Put 48 bytes in between.
+alignas(std::max_align_t) std::atomic_bool finished{false};
+std::mutex cout_mutex;
 
-void bench_mark0();
-void bench_mark1();
-
-// Benchmark bench_mark0 while all other threads call bench_mark1.
+// Benchmark bench_mark0 when called by four thread, while four other threads call bench_mark1.
 void bench_run()
 {
-  Debug(NAMESPACE_DEBUG::init_thread());
   int thr = ++thr_count;
 
-  if (thr > 4)
+  // Spin until all threads have started.
+  while (thr_count.load() != number_of_threads)
+    ;
+
+  // The first four threads continuously wait for cv.
+  if (thr > number_of_threads / 2)
   {
-    for (int j = 0; j < sn; ++j)
-      for (int i = 0; i < n1; ++i)
-        bench_mark1();
+    while (!finished.load(std::memory_order_relaxed))
+    {
+      //======================================================================
+      // CONSUMER THREADS.
+      std::unique_lock<std::mutex> lk(m);                       // Atomically increment s_idle and go into the wait state.
+      s_idle.fetch_add(1, std::memory_order_relaxed);           // Requirement: threads seeing this increment also must see the mutex being locked.
+      cv.wait(lk);
+      //======================================================================
+
+      // Note that the relaxed increment is enough. It is impossible
+      // for another thread to see the increment and still be able
+      // to obtain the lock (while this thread is still holding the lock;
+      // or while this thread didn't take the lock yet).
+      //
+      // This can be checked by running the following code snippet:
+      //
+      // int main()
+      // {
+      //   atomic_int s_idle = 0;
+      //   mutex m;
+      //   int x = 0;
+      //
+      //   {{{
+      //     {
+      //       x = 0;
+      //       m.lock();
+      //       s_idle.store(1, mo_relaxed);
+      //     }
+      //   |||
+      //     {
+      //       s_idle.load(mo_relaxed).readsvalue(1);
+      //       {
+      //         m.lock();
+      //         x = 1;
+      //       }
+      //     }
+      //   }}}
+      // }
+      //
+      // on http://svr-pes20-cppmem.cl.cam.ac.uk/cppmem/
+      // showing that if the second thread sees the value 1
+      // stored by the first thread, then it will never be
+      // able to obtain the lock on m.
+    }
   }
   else
   {
-    // Bench mark.
-    moodycamel::stats_t stats = moodycamel::microbench_stats(&bench_mark0, n0, sn);
+    double measurements[sn];
+    for (int s = 0; s < sn; ++s)
+    {
+      auto start = std::chrono::high_resolution_clock::now();
+      for (int i = 0; i < n0; ++i)
+      {
+        //==========================================================================
+        // PRODUCER THREADS.
+#if DIRECT
+        cv.notify_one();
+#else
+        int waiting;
+        while ((waiting = s_idle.load(std::memory_order_relaxed)) > 0)        // This line takes 0.9...0.97 ns.
+        {
+          if (!s_idle.compare_exchange_weak(waiting, waiting - 1, std::memory_order_relaxed, std::memory_order_relaxed))
+            continue;
+          notify_one_calls.fetch_add(1, std::memory_order_relaxed);           // Count the number of times we get here.
+          // Taking this lock is only necessary when waiting == 1,
+          // but adding a test for that makes things only 1% slower
+          // due to branch misprediction.
+          std::unique_lock<std::mutex> lk(m);
+          cv.notify_one();                                                    // This lines turns out to take 19.5 microseconds!
+          break;
+        }
+        //==========================================================================
+#endif
+      }
+      auto end = std::chrono::high_resolution_clock::now();
+      measurements[s] = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    }
+    double sum_us = 0;
+    double min_us = 1e30;
+    double max_us = 0.0;
+    for (int s = 0; s < sn; ++s)
+    {
+      sum_us += measurements[s];
+      if (measurements[s] > max_us)
+        max_us = measurements[s];
+      if (measurements[s] < min_us)
+        min_us = measurements[s];
+    }
+    double avg_us = sum_us / ((unsigned long)sn * n0);
 
-    printf("Thread %d statistics: avg: %.2fns, min: %.2fns, max: %.2fns, stddev: %.2fns, Q1: %.2fns, median: %.2fns, Q3: %.2fns\n",
-      thr,
-      stats.avg() * 1000000, // From ms to ns.
-      stats.min() * 1000000,
-      stats.max() * 1000000,
-      stats.stddev() * 1000000,
-      stats.q1() * 1000000,
-      stats.median() * 1000000,
-      stats.q3() * 1000000);
+    double sum_of_squares_us = 0;
+    for (int s = 0; s < sn; ++s)
+      sum_of_squares_us += (measurements[s] / n0 - avg_us) * (measurements[s] / n0 - avg_us);
 
-    Dout(dc::notice, "wait_in = " << wait_in << "; wait_out = " << wait_out << "; notify_one_calls = " << notify_one_calls);
-    Dout(dc::notice, "The average time spend on calling notify_one() was: " << (stats.avg() * 1000000 - 2.1) * 4 * n0 * sn / notify_one_calls << " ns.");
+    double avg_ns = 1000 * avg_us;
+    double min_ns = min_us / n0 * 1000;
+    double max_ns = max_us / n0 * 1000;
+    double stddev_ns = std::sqrt(sum_of_squares_us / (sn - 1)) * 1000;
+
+    std::unique_lock<std::mutex> lk(cout_mutex);
+    std::streamsize old_precision = std::cout.precision(2);
+    std::cout << "Thread " << thr << " statistics: avg: " << avg_ns << "ns, min: " << min_ns << "ns, max: " << max_ns << "ns, stddev: " << stddev_ns << "ns\n";
+    std::cout.precision(old_precision);
+
+    std::cout << "The average time spend on calling notify_one() (" << notify_one_calls << " calls) was: ";
+#if DIRECT
+    std::cout << avg_ns;
+#else
+    std::cout << (avg_ns - stddev_ns - 0.97) * 4 * n0 * sn / notify_one_calls << " - " << (avg_ns + stddev_ns - 0.90) * 4 * n0 * sn / notify_one_calls;
+#endif
+    std::cout << " ns.\n";
+
+    finished = true;
   }
-  std::cout << "Thread " << thr << " finished.\n";
+  std::cout << "Thread " << thr << " finished." << std::endl;
 }
 
 int main()
 {
-#ifdef DEBUGGLOBAL
-  GlobalObjectManager::main_entered();
-#endif
-  Debug(NAMESPACE_DEBUG::init());
-
-  Dout(dc::notice, "cache_linesize = " << cache_linesize);
-  Dout(dc::notice, "max_align = " << max_align);
-  Dout(dc::notice, "cache_line_dist = " << cache_line_dist);
-  Dout(dc::notice, "&x = " << (void*)&x);
-  Dout(dc::notice, "&y = " << (void*)&y);
-
-  assert(alignof(x) >= alignof(std::max_align_t));
-  assert(alignof(y) >= alignof(std::max_align_t));
-  ssize_t d = (ssize_t)&y - (ssize_t)&x;
-  if (d < 0)
-    d = -d;
-  Dout(dc::notice, "d = " << d);
-  assert(d >= cache_linesize);
-
   std::vector<std::thread> thread_pool;
   for (int i = 0; i < number_of_threads; ++i)
-  {
     thread_pool.emplace(thread_pool.end(), bench_run);
-  }
   std::cout << "All started!" << std::endl;
 
   for (int i = 0; i < number_of_threads; ++i)
-  {
     thread_pool[i].join();
-  }
   std::cout << "All finished!" << std::endl;
-}
-
-void bench_mark0()                                                      // This function is called 4 * sn * n0 times.
-{
-#if DIRECT
-  notify_one_calls.fetch_add(1, std::memory_order_relaxed);
-  cv.notify_one();
-#else
-  int waiting;
-  while ((waiting = s_idle.load(std::memory_order_relaxed)) > 0)        // This line takes 2.1 ns (including function call).
-  {
-    if (!s_idle.compare_exchange_weak(waiting, waiting - 1, std::memory_order_relaxed, std::memory_order_relaxed))
-      continue;
-    std::unique_lock<std::mutex> lk(m);
-    notify_one_calls.fetch_add(1, std::memory_order_relaxed);           // Count the number of times we get here.
-    cv.notify_one();
-    break;
-  }
-#endif
-}
-
-void bench_mark1()
-{
-  std::unique_lock<std::mutex> lk(m);
-  s_idle.fetch_add(1, std::memory_order_relaxed);
-  wait_in.fetch_add(1, std::memory_order_relaxed);
-  cv.wait(lk);
-  wait_out.fetch_add(1, std::memory_order_relaxed);
 }

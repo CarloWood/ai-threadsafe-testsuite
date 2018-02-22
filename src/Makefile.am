@@ -26,8 +26,8 @@ readwritemutex_test_LDADD = ../threadsafe/libthreadsafe.la ../utils/libutils_r.l
 readwritespinlock_test_CXXFLAGS = -O3 -std=c++11 @LIBCWD_R_FLAGS@
 readwritespinlock_test_LDADD = ../threadsafe/libthreadsafe.la ../utils/libutils_r.la ../microbench/libmicrobench.la $(top_builddir)/cwds/libcwds_r.la
 
-condition_variable_test_CXXFLAGS = -O3 -std=c++11 @LIBCWD_R_FLAGS@
-condition_variable_test_LDADD = ../microbench/libmicrobench.la $(top_builddir)/cwds/libcwds_r.la
+condition_variable_test_CXXFLAGS = -O3 -std=c++11
+condition_variable_test_LDFLAGS = -pthread
 
 # --------------- Maintainer's Section
 
