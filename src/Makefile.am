@@ -1,6 +1,6 @@
 AM_CPPFLAGS = -iquote $(top_srcdir) -iquote $(top_srcdir)/cwds
 
-bin_PROGRAMS = threadsafe_test readwritemutex_test readwritespinlock_test
+bin_PROGRAMS = threadsafe_test readwritemutex_test readwritespinlock_test condition_variable_test
 
 threadsafe_test_SOURCES = \
 	aithreadsafe_test.cxx \
@@ -14,6 +14,9 @@ readwritespinlock_test_SOURCES = \
 	AIReadWriteSpinLock_test.cxx \
 	AIReadWriteSpinLock.h
 
+condition_variable_test_SOURCES = \
+	condition_variable_test.cxx
+
 threadsafe_test_CXXFLAGS = -std=c++11 @LIBCWD_R_FLAGS@
 threadsafe_test_LDADD = ../threadsafe/libthreadsafe.la ../utils/libutils_r.la $(top_builddir)/cwds/libcwds_r.la
 
@@ -22,6 +25,9 @@ readwritemutex_test_LDADD = ../threadsafe/libthreadsafe.la ../utils/libutils_r.l
 
 readwritespinlock_test_CXXFLAGS = -O3 -std=c++11 @LIBCWD_R_FLAGS@
 readwritespinlock_test_LDADD = ../threadsafe/libthreadsafe.la ../utils/libutils_r.la ../microbench/libmicrobench.la $(top_builddir)/cwds/libcwds_r.la
+
+condition_variable_test_CXXFLAGS = -O3 -std=c++11 @LIBCWD_R_FLAGS@
+condition_variable_test_LDADD = ../microbench/libmicrobench.la $(top_builddir)/cwds/libcwds_r.la
 
 # --------------- Maintainer's Section
 
