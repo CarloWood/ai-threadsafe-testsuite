@@ -10,7 +10,9 @@
 #include <cmath>
 #include <iomanip>
 
+#ifndef DIRECT
 #define DIRECT 0
+#endif
 
 int const number_of_threads = std::thread::hardware_concurrency();
 #if DIRECT
@@ -138,7 +140,7 @@ void bench_run()
       if (measurements[s] < min_us)
         min_us = measurements[s];
     }
-    double avg_us = sum_us / ((unsigned long)sn * n0);
+    double avg_us = sum_us / ((uint64_t)sn * n0);
 
     double sum_of_squares_us = 0;
     for (int s = 0; s < sn; ++s)
@@ -151,10 +153,16 @@ void bench_run()
 
     std::unique_lock<std::mutex> lk(cout_mutex);
     std::streamsize old_precision = std::cout.precision(2);
-    std::cout << "Thread " << thr << " statistics: avg: " << avg_ns << "ns, min: " << min_ns << "ns, max: " << max_ns << "ns, stddev: " << stddev_ns << "ns\n";
+    std::cout << "Thread " << thr << " statistics: avg: " << std::fixed << avg_ns << "ns, min: " << min_ns << "ns, max: " << max_ns << "ns, stddev: " << stddev_ns << "ns\n";
     std::cout.precision(old_precision);
 
-    std::cout << "The average time spend on calling notify_one() (" << notify_one_calls << " calls) was: ";
+    std::cout << "The average time spent on calling notify_one() (";
+#if DIRECT
+    std::cout << ((uint64_t)sn * n0 * number_of_threads / 2);
+#else
+    std::cout << notify_one_calls;
+#endif
+    std::cout << " calls) was: ";
 #if DIRECT
     std::cout << avg_ns;
 #else
