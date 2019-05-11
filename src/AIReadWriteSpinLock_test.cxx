@@ -105,9 +105,6 @@ void bench_run()
 
 int main()
 {
-#ifdef DEBUGGLOBAL
-  GlobalObjectManager::main_entered();
-#endif
   Debug(NAMESPACE_DEBUG::init());
 
   std::vector<std::thread> thread_pool;
