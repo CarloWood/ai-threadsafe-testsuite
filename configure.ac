@@ -22,7 +22,7 @@ define(CW_THREADS, [yes])
 m4_include([cwm4/configure_ac_top.m4])
 
 # Comment this out if the project is using doxygen to generate documentation.
-#CW_DOXYGEN
+#CW_DOXYGEN([])
 
 # Configuration output files.
 AC_CONFIG_FILES([src/Makefile])
