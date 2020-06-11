@@ -4,11 +4,13 @@
 #include <thread>
 #include <vector>
 #include <cassert>
+#include <algorithm>
 
-int const number_of_threads = std::thread::hardware_concurrency();
+constexpr unsigned int size_of_count = 33;
+long volatile count[size_of_count];
+int const number_of_threads = std::min(std::thread::hardware_concurrency(), size_of_count - 1);
 int const n = 100000;
 
-long volatile count[9];
 std::atomic<int> write_access;
 std::atomic<int> read_access;
 std::atomic<int> thr_count;
