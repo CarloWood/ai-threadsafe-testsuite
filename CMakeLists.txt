@@ -4,6 +4,11 @@ project(ai-threadsafe-testsuite
         LANGUAGES CXX
         DESCRIPTION "Testsuite for git submodule ai-threadsafe.")
 
+# Compile all subdirectories with the same standard.
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
 # Use gitache for libcwd.
 set(GITACHE_PACKAGES libcwd_r)
 include(cwm4/cmake/StableGitache)
