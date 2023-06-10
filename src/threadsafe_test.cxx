@@ -1,19 +1,19 @@
 #include "sys.h"
-#include "threadsafe/aithreadsafe.h"
+#include "threadsafe/threadsafe.h"
 #include "threadsafe/AIReadWriteMutex.h"
 
 #include <iostream>
 #include <cassert>
 #include <mutex>
 
-using namespace aithreadsafe;
+using namespace threadsafe;
 
 template<int size, typename T>
 void do_asserts()
 {
   static_assert(sizeof(T) == sizeof(Bits<T>), "sizeof(Bits<T) != sizeof(T)!");
-  static_assert(alignof(T) == alignof(Wrapper<T, policy::OneThread>), "alignof(Wrapper<T, OneThread>) != alignof(T)!");
-  static_assert(alignof(Wrapper<T, policy::Primitive<std::mutex>>) % alignof(T) == 0, "alignof(Wrapper<T, Primitive<std::mutex>>) is not a multiple of alignof(T)!");
+  static_assert(alignof(T) == alignof(Unlocked<T, policy::OneThread>), "alignof(Unlocked<T, OneThread>) != alignof(T)!");
+  static_assert(alignof(Unlocked<T, policy::Primitive<std::mutex>>) % alignof(T) == 0, "alignof(Unlocked<T, Primitive<std::mutex>>) is not a multiple of alignof(T)!");
 }
 
 template<int size>
@@ -25,10 +25,10 @@ void do_size_test()
   struct T4 { int32_t x; char a[size]; };
   struct T8 { int64_t x; char a[size]; };
 
-  do_asserts<size, Wrapper<T1, policy::OneThread>>();
-  do_asserts<size, Wrapper<T2, policy::OneThread>>();
-  do_asserts<size, Wrapper<T4, policy::OneThread>>();
-  do_asserts<size, Wrapper<T8, policy::OneThread>>();
+  do_asserts<size, Unlocked<T1, policy::OneThread>>();
+  do_asserts<size, Unlocked<T2, policy::OneThread>>();
+  do_asserts<size, Unlocked<T4, policy::OneThread>>();
+  do_asserts<size, Unlocked<T8, policy::OneThread>>();
 }
 
 enum state_type { unlocked, readlocked, writelocked };
@@ -78,9 +78,9 @@ struct Foo {
 #define TEST_READWRITE 1
 
 #if TEST_READWRITE
-using foo_t = Wrapper<Foo, policy::ReadWrite<TestRWMutex>>;
+using foo_t = Unlocked<Foo, policy::ReadWrite<TestRWMutex>>;
 #else
-using foo_t = Wrapper<Foo, policy::Primitive<TestMutex>>;
+using foo_t = Unlocked<Foo, policy::Primitive<TestMutex>>;
 #endif
 
 // Hack access to TestRWMutex.
@@ -114,29 +114,29 @@ bool is_writelocked(foo_t const& wrapper)
 }
 
 // Hack access to m_wrapper.
-class AccessWrapper : public foo_t::crat
+class AccessUnlocked : public foo_t::crat
 {
   public:
-    bool is_unlocked() const { return ::is_unlocked(*this->m_wrapper); }
-    bool is_readlocked() const { return ::is_readlocked(*this->m_wrapper); }
-    bool is_writelocked() const { return ::is_writelocked(*this->m_wrapper); }
+    bool is_unlocked() const { return ::is_unlocked(*this->m_unlocked); }
+    bool is_readlocked() const { return ::is_readlocked(*this->m_unlocked); }
+    bool is_writelocked() const { return ::is_writelocked(*this->m_unlocked); }
 };
 
 bool is_unlocked(foo_t::crat const& access)
 {
-  AccessWrapper const& a = static_cast<AccessWrapper const&>(access);
+  AccessUnlocked const& a = static_cast<AccessUnlocked const&>(access);
   return a.is_unlocked();
 }
 
 bool is_readlocked(foo_t::crat const& access)
 {
-  AccessWrapper const& a = static_cast<AccessWrapper const&>(access);
+  AccessUnlocked const& a = static_cast<AccessUnlocked const&>(access);
   return a.is_readlocked();
 }
 
 bool is_writelocked(foo_t::crat const& access)
 {
-  AccessWrapper const& a = static_cast<AccessWrapper const&>(access);
+  AccessUnlocked const& a = static_cast<AccessUnlocked const&>(access);
   return a.is_writelocked();
 }
 
@@ -197,9 +197,9 @@ int main()
 
   // ThreadSafe compile tests.
   struct A { int x; };
-  using onethread_t = Wrapper<A, policy::OneThread>;
-  using primitive_t = Wrapper<A, policy::Primitive<std::mutex>>;
-  using readwrite_t = Wrapper<A, policy::ReadWrite<AIReadWriteMutex>>;
+  using onethread_t = Unlocked<A, policy::OneThread>;
+  using primitive_t = Unlocked<A, policy::Primitive<std::mutex>>;
+  using readwrite_t = Unlocked<A, policy::ReadWrite<AIReadWriteMutex>>;
 
   onethread_t onethread;
   primitive_t primitive;
@@ -411,27 +411,27 @@ int main()
 #ifdef TEST1
   {
     // Getting write access to a const wrapper.
-    foo_t::wat fail(const_wrapper);			// TEST1 FAIL (error: no matching function for call to ‘aithreadsafe::WriteAccess<aithreadsafe::Wrapper<Foo, aithreadsafe::policy::ReadWrite<TestRWMutex> > >::WriteAccess(const foo_t&)’)
+    foo_t::wat fail(const_wrapper);			// TEST1 FAIL (error: no matching function for call to ‘threadsafe::WriteAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex> > >::WriteAccess(const foo_t&)’)
   }
 #endif
 #ifdef TEST2
   {
     // Creating a rat from a const wrapper.
-    foo_t::rat fail(const_wrapper);			// TEST2 FAIL (error: no matching function for call to ‘aithreadsafe::ReadAccess<aithreadsafe::Wrapper<Foo, aithreadsafe::policy::ReadWrite<TestRWMutex> > >::ReadAccess(const foo_t&)’)
+    foo_t::rat fail(const_wrapper);			// TEST2 FAIL (error: no matching function for call to ‘threadsafe::ReadAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex> > >::ReadAccess(const foo_t&)’)
   }
 #endif
 #ifdef TEST3
   {
     // Getting write access from wat.
     foo_t::wat write_access(wrapper);			// OK
-    foo_t::wat fail(write_access);			// TEST3 FAIL (error: use of deleted function ‘aithreadsafe::WriteAccess<aithreadsafe::Wrapper<Foo, aithreadsafe::policy::ReadWrite<TestRWMutex> > >::WriteAccess(const aithreadsafe::WriteAccess<aithreadsafe::Wrapper<Foo, aithreadsafe::policy::ReadWrite<TestRWMutex> > >&)’)
+    foo_t::wat fail(write_access);			// TEST3 FAIL (error: use of deleted function ‘threadsafe::WriteAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex> > >::WriteAccess(const threadsafe::WriteAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex> > >&)’)
   }
 #endif
 #ifdef TEST4
   {
     // Getting write access from crat.
     foo_t::crat read_access_const(const_wrapper);	// OK
-    foo_t::wat fail(read_access_const);			// TEST4 FAIL (error: no matching function for call to ‘aithreadsafe::WriteAccess<aithreadsafe::Wrapper<Foo, aithreadsafe::policy::ReadWrite<TestRWMutex> > >::WriteAccess(aithreadsafe::Wrapper<Foo, aithreadsafe::policy::ReadWrite<TestRWMutex> >::crat&)’)
+    foo_t::wat fail(read_access_const);			// TEST4 FAIL (error: no matching function for call to ‘threadsafe::WriteAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex> > >::WriteAccess(threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex> >::crat&)’)
   }
 #endif
 #ifdef TEST5
@@ -452,63 +452,63 @@ int main()
   {
     // Create crat from crat.
     foo_t::crat read_access_const(const_wrapper);	// OK
-    foo_t::crat fail(read_access_const);		// TEST7 FAIL (error: ‘aithreadsafe::ConstReadAccess<WRAPPER>::ConstReadAccess(const aithreadsafe::ConstReadAccess<WRAPPER>&) [with WRAPPER = aithreadsafe::Wrapper<Foo, aithreadsafe::policy::ReadWrite<TestRWMutex> >]’ is private)
+    foo_t::crat fail(read_access_const);		// TEST7 FAIL (error: ‘threadsafe::ConstReadAccess<UNLOCKED>::ConstReadAccess(const threadsafe::ConstReadAccess<UNLOCKED>&) [with UNLOCKED = threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex> >]’ is private)
   }
 #endif
 #ifdef TEST8
   {
     // Create crat from rat.
     foo_t::rat read_access(wrapper);			// OK
-    foo_t::crat fail(read_access);			// TEST8 FAIL (error: ‘aithreadsafe::ConstReadAccess<WRAPPER>::ConstReadAccess(const aithreadsafe::ConstReadAccess<WRAPPER>&) [with WRAPPER = aithreadsafe::Wrapper<Foo, aithreadsafe::policy::ReadWrite<TestRWMutex> >]’ is private)
+    foo_t::crat fail(read_access);			// TEST8 FAIL (error: ‘threadsafe::ConstReadAccess<UNLOCKED>::ConstReadAccess(const threadsafe::ConstReadAccess<UNLOCKED>&) [with UNLOCKED = threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex> >]’ is private)
   }
 #endif
 #ifdef TEST9
   {
     // Create crat from wat.
     foo_t::wat write_access(wrapper);			// OK
-    foo_t::crat fail(write_access);			// TEST9 FAIL (error: ‘aithreadsafe::ConstReadAccess<WRAPPER>::ConstReadAccess(const aithreadsafe::ConstReadAccess<WRAPPER>&) [with WRAPPER = aithreadsafe::Wrapper<Foo, aithreadsafe::policy::ReadWrite<TestRWMutex> >]’ is private)
+    foo_t::crat fail(write_access);			// TEST9 FAIL (error: ‘threadsafe::ConstReadAccess<UNLOCKED>::ConstReadAccess(const threadsafe::ConstReadAccess<UNLOCKED>&) [with UNLOCKED = threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex> >]’ is private)
   }
 #endif
 #ifdef TEST10
   {
     // Create rat from crat.
     foo_t::crat read_access_const(const_wrapper);	// OK
-    foo_t::rat fail(read_access_const);			// TEST10 FAIL (error: no matching function for call to ‘aithreadsafe::ReadAccess<aithreadsafe::Wrapper<Foo, aithreadsafe::policy::ReadWrite<TestRWMutex> > >::ReadAccess(aithreadsafe::Wrapper<Foo, aithreadsafe::policy::ReadWrite<TestRWMutex> >::crat&)’)
+    foo_t::rat fail(read_access_const);			// TEST10 FAIL (error: no matching function for call to ‘threadsafe::ReadAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex> > >::ReadAccess(threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex> >::crat&)’)
   }
 #endif
 #ifdef TEST11
   {
     // Create rat from rat.
     foo_t::rat read_access(wrapper);			// OK
-    foo_t::rat fail(read_access);			// TEST11 FAIL (error: use of deleted function ‘aithreadsafe::ReadAccess<aithreadsafe::Wrapper<Foo, aithreadsafe::policy::ReadWrite<TestRWMutex> > >::ReadAccess(const aithreadsafe::ReadAccess<aithreadsafe::Wrapper<Foo, aithreadsafe::policy::ReadWrite<TestRWMutex> > >&)’)
+    foo_t::rat fail(read_access);			// TEST11 FAIL (error: use of deleted function ‘threadsafe::ReadAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex> > >::ReadAccess(const threadsafe::ReadAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex> > >&)’)
   }
 #endif
 #ifdef TEST12
   {
     // Create rat from wat.
     foo_t::wat write_access(wrapper);			// OK
-    foo_t::rat fail(write_access);			// TEST12 FAIL (error: use of deleted function ‘aithreadsafe::ReadAccess<aithreadsafe::Wrapper<Foo, aithreadsafe::policy::ReadWrite<TestRWMutex> > >::ReadAccess(const aithreadsafe::ReadAccess<aithreadsafe::Wrapper<Foo, aithreadsafe::policy::ReadWrite<TestRWMutex> > >&)’)
+    foo_t::rat fail(write_access);			// TEST12 FAIL (error: use of deleted function ‘threadsafe::ReadAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex> > >::ReadAccess(const threadsafe::ReadAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex> > >&)’)
   }
 #endif
 #ifdef TEST13
   {
     // Passing a crat to func_read.
     foo_t::crat read_access_const(const_wrapper);	// OK
-    func_read_and_then_write(read_access_const);	// TEST13 FAIL (error: invalid initialization of reference of type ‘aithreadsafe::Wrapper<Foo, aithreadsafe::policy::ReadWrite<TestRWMutex> >::rat& {aka aithreadsafe::ReadAccess<aithreadsafe::Wrapper<Foo, aithreadsafe::policy::ReadWrite<TestRWMutex> > >&}’ from expression of type ‘aithreadsafe::Wrapper<Foo, aithreadsafe::policy::ReadWrite<TestRWMutex> >::crat {aka aithreadsafe::ConstReadAccess<aithreadsafe::Wrapper<Foo, aithreadsafe::policy::ReadWrite<TestRWMutex> > >}’)
+    func_read_and_then_write(read_access_const);	// TEST13 FAIL (error: invalid initialization of reference of type ‘threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex> >::rat& {aka threadsafe::ReadAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex> > >&}’ from expression of type ‘threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex> >::crat {aka threadsafe::ConstReadAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex> > >}’)
   }
 #endif
 #ifdef TEST14
   {
     // Passing a crat to func_write.
     foo_t::crat read_access_const(const_wrapper);	// OK
-    func_write(read_access_const);			// TEST14 FAIL (error: invalid initialization of reference of type ‘const wat& {aka const aithreadsafe::WriteAccess<aithreadsafe::Wrapper<Foo, aithreadsafe::policy::ReadWrite<TestRWMutex> > >&}’ from expression of type ‘aithreadsafe::Wrapper<Foo, aithreadsafe::policy::ReadWrite<TestRWMutex> >::crat {aka aithreadsafe::ConstReadAccess<aithreadsafe::Wrapper<Foo, aithreadsafe::policy::ReadWrite<TestRWMutex> > >}’)
+    func_write(read_access_const);			// TEST14 FAIL (error: invalid initialization of reference of type ‘const wat& {aka const threadsafe::WriteAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex> > >&}’ from expression of type ‘threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex> >::crat {aka threadsafe::ConstReadAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex> > >}’)
   }
 #endif
 #ifdef TEST15
   {
     // Passing a rat to func_write.
     foo_t::rat read_access(wrapper);			// OK
-    func_write(read_access);				// TEST15 FAIL (error: invalid initialization of reference of type ‘const wat& {aka const aithreadsafe::WriteAccess<aithreadsafe::Wrapper<Foo, aithreadsafe::policy::ReadWrite<TestRWMutex> > >&}’ from expression of type ‘aithreadsafe::Wrapper<Foo, aithreadsafe::policy::ReadWrite<TestRWMutex> >::rat {aka aithreadsafe::ReadAccess<aithreadsafe::Wrapper<Foo, aithreadsafe::policy::ReadWrite<TestRWMutex> > >}’)
+    func_write(read_access);				// TEST15 FAIL (error: invalid initialization of reference of type ‘const wat& {aka const threadsafe::WriteAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex> > >&}’ from expression of type ‘threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex> >::rat {aka threadsafe::ReadAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex> > >}’)
   }
 #endif
 #ifdef TEST16

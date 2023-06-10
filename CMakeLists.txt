@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.14...3.17)
 
 project(ai-threadsafe-testsuite
         LANGUAGES CXX
-        DESCRIPTION "Testsuite for git submodule ai-threadsafe.")
+        DESCRIPTION "Testsuite for git submodule threadsafe.")
 
 # Compile all subdirectories with the same standard.
 set(CMAKE_CXX_STANDARD 20)

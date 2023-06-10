@@ -1,7 +1,7 @@
 include( AICxxProject )
 
-add_executable( aithreadsafe_test aithreadsafe_test.cxx )
-target_link_libraries( aithreadsafe_test PRIVATE ${AICXX_OBJECTS_LIST} )
+add_executable( threadsafe_test threadsafe_test.cxx )
+target_link_libraries( threadsafe_test PRIVATE ${AICXX_OBJECTS_LIST} )
 
 add_executable( AIReadWriteMutex_test AIReadWriteMutex_test.cxx )
 target_link_libraries( AIReadWriteMutex_test PRIVATE ${AICXX_OBJECTS_LIST} )

@@ -3,8 +3,8 @@ AM_CPPFLAGS = -iquote $(top_srcdir) -iquote $(top_srcdir)/cwds
 bin_PROGRAMS = threadsafe_test readwritemutex_test readwritespinlock_test condition_variable_test
 
 threadsafe_test_SOURCES = \
-	aithreadsafe_test.cxx \
-	aithreadsafe.h
+	threadsafe_test.cxx \
+	threadsafe.h
 
 readwritemutex_test_SOURCES = \
 	AIReadWriteMutex_test.cxx \
