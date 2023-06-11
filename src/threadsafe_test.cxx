@@ -4,7 +4,6 @@
 
 #include <iostream>
 #include <cassert>
-#include <mutex>
 
 using namespace threadsafe;
 
