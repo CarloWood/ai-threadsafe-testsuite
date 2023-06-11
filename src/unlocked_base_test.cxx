@@ -1,6 +1,7 @@
 #include "sys.h"
 #include "threadsafe/threadsafe.h"
 #include "threadsafe/AIReadWriteMutex.h"
+#include "utils/AIRefCount.h"
 
 #include <iostream>
 #include <cassert>
@@ -8,8 +9,9 @@
 
 using namespace threadsafe;
 
-class B {
+class B : public AIRefCount {
  public:
+  virtual ~B() {}
   virtual void modify() = 0;
   virtual void print() const = 0;
 };
@@ -18,7 +20,15 @@ class A : public B {
   int m_;
 
  public:
-  A(int m) : m_(m) { }
+  A(int m) : m_(m)
+  {
+    DoutEntering(dc::notice, "A::A(" << m << ") [" << this << "]");
+  }
+
+  ~A()
+  {
+    DoutEntering(dc::notice, "A::~A() [" << this << "]");
+  }
 
   void modify() override
   {
@@ -31,25 +41,32 @@ class A : public B {
   }
 };
 
-using UnlockedA = Unlocked<A, policy::Primitive<std::mutex>>;
-//using UnlockedA = Unlocked<A, policy::ReadWrite<AIReadWriteMutex>>;
+//using UnlockedA = Unlocked<A, policy::Primitive<std::mutex>>;
+using UnlockedA = Unlocked<A, policy::ReadWrite<AIReadWriteMutex>>;
 //using UnlockedA = Unlocked<A, policy::OneThread>;
 using UnlockedB = UnlockedBase<B, UnlockedA::policy_type>;
 
-void f(UnlockedB b)
+void f(boost::intrusive_ptr<UnlockedB>& b)
 {
   {
-    UnlockedB::wat b_w(b);    // Get write-access.
+    UnlockedB::wat b_w(*b);    // Get write-access.
     b_w->modify();
   }
   {
-    UnlockedB::rat b_r(b);    // Get read-access.
+    UnlockedB::rat b_r(*b);    // Get read-access.
     b_r->print();
   }
 }
 
 int main()
 {
-  UnlockedA a(42);
-  f(a);
+  Debug(NAMESPACE_DEBUG::init());
+
+  boost::intrusive_ptr<UnlockedA> a = new UnlockedA(42);
+  {
+    boost::intrusive_ptr<UnlockedB> b = new UnlockedB(*a);
+    Dout(dc::notice, "Leaving scope");
+    f(b);
+  }
+  Dout(dc::notice, "Leaving main()");
 }
