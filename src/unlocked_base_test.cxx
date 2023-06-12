@@ -46,14 +46,14 @@ using UnlockedA = Unlocked<A, policy::ReadWrite<AIReadWriteMutex>>;
 //using UnlockedA = Unlocked<A, policy::OneThread>;
 using UnlockedB = UnlockedBase<B, UnlockedA::policy_type>;
 
-void f(boost::intrusive_ptr<UnlockedB>& b)
+void f(UnlockedB& b)
 {
   {
-    UnlockedB::wat b_w(*b);    // Get write-access.
+    UnlockedB::wat b_w(b);    // Get write-access.
     b_w->modify();
   }
   {
-    UnlockedB::rat b_r(*b);    // Get read-access.
+    UnlockedB::crat b_r(b);    // Get read-access.
     b_r->print();
   }
 }
@@ -64,9 +64,9 @@ int main()
 
   boost::intrusive_ptr<UnlockedA> a = new UnlockedA(42);
   {
-    boost::intrusive_ptr<UnlockedB> b = new UnlockedB(*a);
-    Dout(dc::notice, "Leaving scope");
+    UnlockedB b = *a;
     f(b);
+    Dout(dc::notice, "Leaving scope");
   }
   Dout(dc::notice, "Leaving main()");
 }
