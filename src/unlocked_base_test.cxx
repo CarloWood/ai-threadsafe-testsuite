@@ -65,6 +65,7 @@ int main()
   boost::intrusive_ptr<UnlockedA> a = new UnlockedA(42);
   {
     UnlockedB b = *a;
+    a.reset();
     f(b);
     Dout(dc::notice, "Leaving scope");
   }

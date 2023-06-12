@@ -7,12 +7,15 @@
 
 using namespace threadsafe;
 
-template<int size, typename T>
+template<int size, typename U>
 void do_asserts()
 {
-  static_assert(sizeof(T) == sizeof(Bits<T>), "sizeof(Bits<T) != sizeof(T)!");
-  static_assert(alignof(T) == alignof(Unlocked<T, policy::OneThread>), "alignof(Unlocked<T, OneThread>) != alignof(T)!");
-  static_assert(alignof(Unlocked<T, policy::Primitive<std::mutex>>) % alignof(T) == 0, "alignof(Unlocked<T, Primitive<std::mutex>>) is not a multiple of alignof(T)!");
+#if THREADSAFE_DEBUG
+  static_assert(std::max(alignof(typename U::data_type), alignof(policy::OneThread)) == alignof(U), "alignof(Unlocked<T, OneThread>) != alignof(T)!");
+#else
+  static_assert(alignof(typename U::data_type) == alignof(U), "alignof(Unlocked<T, OneThread>) != alignof(T)!");
+#endif
+  static_assert(alignof(Unlocked<typename U::data_type, policy::Primitive<std::mutex>>) % alignof(typename U::data_type) == 0, "alignof(Unlocked<T, Primitive<std::mutex>>) is not a multiple of alignof(T)!");
 }
 
 template<int size>
