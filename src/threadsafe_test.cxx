@@ -115,7 +115,7 @@ bool is_writelocked(foo_t const& wrapper)
   return static_cast<LockAccess const&>(wrapper).is_writelocked();
 }
 
-// Hack access to m_wrapper.
+// Hack access to m_unlocked.
 class AccessUnlocked : public foo_t::crat
 {
   public:
@@ -167,6 +167,98 @@ void func_write(foo_t::wat const& access)
   assert(is_writelocked(access));
 }
 
+template<typename onethread_t, typename primitive_t, typename readwrite_t>
+void do_const_access_test(onethread_t const& onethread, primitive_t const& primitive, readwrite_t const& readwrite)
+{
+  // Reading
+  {
+    typename onethread_t::crat onethread_r(onethread);
+    assert(onethread_r->x == 111);
+  }
+  {
+    typename primitive_t::crat primitive_r(primitive);
+    assert(primitive_r->x == 222);
+  }
+  {
+    typename readwrite_t::crat readwrite_r(readwrite);
+    assert(readwrite_r->x == 333);
+  }
+}
+
+template<typename onethread_t, typename primitive_t, typename readwrite_t>
+void do_access_test(onethread_t& onethread, primitive_t& primitive, readwrite_t& readwrite)
+{
+  // Writing
+  {
+    typename onethread_t::wat onethread_w(onethread);
+    onethread_w->x = 111;
+  }
+  {
+    typename primitive_t::wat primitive_w(primitive);
+    primitive_w->x = 222;
+  }
+  {
+    typename readwrite_t::wat readwrite_w(readwrite);
+    readwrite_w->x = 333;
+  }
+
+  // Reading
+  {
+    typename onethread_t::rat onethread_r(onethread);
+    assert(onethread_r->x == 111);
+  }
+  {
+    typename primitive_t::rat primitive_r(primitive);
+    assert(primitive_r->x == 222);
+  }
+  {
+    typename readwrite_t::rat readwrite_r(readwrite);
+    assert(readwrite_r->x == 333);
+  }
+
+  do_const_access_test(onethread, primitive, readwrite);
+
+  // Conversions, write to read access.
+  {
+    typename onethread_t::wat onethread_w(onethread);
+    onethread_w->x = 444;
+    typename onethread_t::rat const& onethread_r(onethread_w);
+    assert(onethread_r->x == 444);
+  }
+  {
+    typename primitive_t::wat primitive_w(primitive);
+    primitive_w->x = 555;
+    typename primitive_t::rat const& primitive_r(primitive_w);
+    assert(primitive_r->x == 555);
+  }
+  {
+    typename readwrite_t::wat readwrite_w(readwrite);
+    readwrite_w->x = 666;
+    typename readwrite_t::rat const& readwrite_r(readwrite_w);
+    assert(readwrite_r->x == 666);
+  }
+
+  // Conversions, read to write access.
+  {
+    typename onethread_t::rat onethread_r(onethread);
+    typename onethread_t::wat const& onethread_w = wat_cast(onethread_r);
+    onethread_w->x = 777;
+    assert(onethread_r->x == 777);
+  }
+  {
+    typename primitive_t::rat primitive_r(primitive);
+    typename primitive_t::wat const& primitive_w = wat_cast(primitive_r);
+    primitive_w->x = 888;
+    assert(primitive_r->x == 888);
+  }
+  {
+    typename readwrite_t::rat readwrite_r(readwrite);
+    typename readwrite_t::wat readwrite_w(readwrite_r);
+    readwrite_w->x = 999;
+    assert(readwrite_r->x == 999);
+  }
+}
+
 int main()
 {
   std::cout << "Testing size and alignment... " << std::flush;
@@ -207,75 +299,7 @@ int main()
   primitive_t primitive;
   readwrite_t readwrite;
 
-  // Writing
-  {
-    onethread_t::wat onethread_w(onethread);
-    onethread_w->x = 111;
-  }
-  {
-    primitive_t::wat primitive_w(primitive);
-    primitive_w->x = 222;
-  }
-  {
-    readwrite_t::wat readwrite_w(readwrite);
-    readwrite_w->x = 333;
-  }
-
-  // Reading
-  {
-    onethread_t::rat onethread_r(onethread);
-    assert(onethread_r->x == 111);
-  }
-  {
-    primitive_t::rat primitive_r(primitive);
-    assert(primitive_r->x == 222);
-  }
-  {
-    readwrite_t::rat readwrite_r(readwrite);
-    assert(readwrite_r->x == 333);
-  }
-
-  // Conversions, write to read access.
-#if 0
-  {
-    onethread_t::wat onethread_w(onethread);
-    onethread_w->x = 444;
-    onethread_t::rat onethread_r(onethread_w);
-    assert(onethread_r->x == 444);
-  }
-  {
-    primitive_t::wat primitive_w(primitive);
-    primitive_w->x = 555;
-    primitive_t::rat primitive_r(primitive_w);
-    assert(primitive_r->x == 555);
-  }
-  {
-    readwrite_t::wat readwrite_w(readwrite);
-    readwrite_w->x = 666;
-    readwrite_t::rat readwrite_r(readwrite_w);
-    assert(readwrite_r->x == 666);
-  }
-
-  // Conversions, read to write access.
-  {
-    onethread_t::rat onethread_r(onethread);
-    onethread_t::wat onethread_w(onethread_r);
-    onethread_w->x = 777;
-    assert(onethread_r->x == 777);
-  }
-  {
-    primitive_t::rat primitive_r(primitive);
-    primitive_t::wat primitive_w(primitive_r);
-    primitive_w->x = 888;
-    assert(primitive_r->x == 888);
-  }
-  {
-    readwrite_t::rat readwrite_r(readwrite);
-    readwrite_t::wat readwrite_w(readwrite_r);
-    readwrite_w->x = 999;
-    assert(readwrite_r->x == 999);
-  }
-#endif
+  do_access_test(onethread, primitive, readwrite);
 
   foo_t wrapper;
   foo_t const& const_wrapper(wrapper);
