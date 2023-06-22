@@ -70,53 +70,71 @@ class TestMutex
 
   public:
     bool is_unlocked() const { return m_state == unlocked; }
-    bool is_locked() const { return m_state == writelocked; }
+    bool is_readlocked() const { return m_state == writelocked; }
+    bool is_writelocked() const { return m_state == writelocked; }
 };
-
-struct Foo {
-  int x;
-};
-
-#define TEST_READWRITE 1
-
-#if TEST_READWRITE
-using foo_t = Unlocked<Foo, policy::ReadWrite<TestRWMutex>>;
-#else
-using foo_t = Unlocked<Foo, policy::Primitive<TestMutex>>;
-#endif
 
 // Hack access to TestRWMutex.
-class LockAccess : public foo_t
+template<typename UNLOCKED>
+class LockAccess : public UNLOCKED
 {
+  private:
+    bool is_unlocked()
+    {
+      if constexpr (std::is_same_v<policy::OneThread, typename UNLOCKED::policy_type> ||
+                    std::is_same_v<policy::OneThreadRef, typename UNLOCKED::policy_type>)
+        return true;
+      else
+        return this->mutex().is_unlocked(); // Call protected member of base class.
+    }
+    bool is_readlocked()
+    {
+      if constexpr (std::is_same_v<policy::OneThread, typename UNLOCKED::policy_type> ||
+                    std::is_same_v<policy::OneThreadRef, typename UNLOCKED::policy_type>)
+        return true;
+      else
+        return this->mutex().is_readlocked();
+
+    }
+    bool is_writelocked()
+    {
+      if constexpr (std::is_same_v<policy::OneThread, typename UNLOCKED::policy_type> ||
+                    std::is_same_v<policy::OneThreadRef, typename UNLOCKED::policy_type>)
+        return true;
+      else
+        return this->mutex().is_writelocked();
+    }
+
   public:
-#if TEST_READWRITE
-    bool is_unlocked() const { return this->m_read_write_mutex.is_unlocked(); }
-    bool is_readlocked() const { return this->m_read_write_mutex.is_readlocked(); }
-    bool is_writelocked() const { return this->m_read_write_mutex.is_writelocked(); }
-#else
-    bool is_unlocked() const { return this->m_primitive_mutex.is_unlocked(); }
-    bool is_readlocked() const { return this->m_primitive_mutex.is_locked(); }
-    bool is_writelocked() const { return this->m_primitive_mutex.is_locked(); }
-#endif
+    bool is_unlocked() const { return const_cast<LockAccess<UNLOCKED>*>(this)->is_unlocked(); }
+    bool is_readlocked() const { return const_cast<LockAccess<UNLOCKED>*>(this)->is_readlocked(); }
+    bool is_writelocked() const { return const_cast<LockAccess<UNLOCKED>*>(this)->is_writelocked(); }
 };
 
-bool is_unlocked(foo_t const& wrapper)
+template<typename UNLOCKED>
+requires requires { typename UNLOCKED::policy_type; }
+bool is_unlocked(UNLOCKED const& wrapper)
 {
-  return static_cast<LockAccess const&>(wrapper).is_unlocked();
+  return static_cast<LockAccess<UNLOCKED> const&>(wrapper).is_unlocked();
 }
 
-bool is_readlocked(foo_t const& wrapper)
+template<typename UNLOCKED>
+requires requires { typename UNLOCKED::policy_type; }
+bool is_readlocked(UNLOCKED const& wrapper)
 {
-  return static_cast<LockAccess const&>(wrapper).is_readlocked();
+  return static_cast<LockAccess<UNLOCKED> const&>(wrapper).is_readlocked();
 }
 
-bool is_writelocked(foo_t const& wrapper)
+template<typename UNLOCKED>
+requires requires { typename UNLOCKED::policy_type; }
+bool is_writelocked(UNLOCKED const& wrapper)
 {
-  return static_cast<LockAccess const&>(wrapper).is_writelocked();
+  return static_cast<LockAccess<UNLOCKED> const&>(wrapper).is_writelocked();
 }
 
 // Hack access to m_unlocked.
-class AccessUnlocked : public foo_t::crat
+template<typename UNLOCKED>
+class AccessUnlocked : public UNLOCKED::crat
 {
   public:
     bool is_unlocked() const { return ::is_unlocked(*this->m_unlocked); }
@@ -124,47 +142,61 @@ class AccessUnlocked : public foo_t::crat
     bool is_writelocked() const { return ::is_writelocked(*this->m_unlocked); }
 };
 
-bool is_unlocked(foo_t::crat const& access)
+template<typename UNLOCKED>
+bool is_unlocked(typename UNLOCKED::crat const& access)
 {
-  AccessUnlocked const& a = static_cast<AccessUnlocked const&>(access);
+  AccessUnlocked<UNLOCKED> const& a = static_cast<AccessUnlocked<UNLOCKED> const&>(access);
   return a.is_unlocked();
 }
 
-bool is_readlocked(foo_t::crat const& access)
+template<typename UNLOCKED>
+bool is_readlocked(typename UNLOCKED::crat const& access)
 {
-  AccessUnlocked const& a = static_cast<AccessUnlocked const&>(access);
+  AccessUnlocked<UNLOCKED> const& a = static_cast<AccessUnlocked<UNLOCKED> const&>(access);
   return a.is_readlocked();
 }
 
-bool is_writelocked(foo_t::crat const& access)
+template<typename UNLOCKED>
+bool is_writelocked(typename UNLOCKED::crat const& access)
 {
-  AccessUnlocked const& a = static_cast<AccessUnlocked const&>(access);
+  AccessUnlocked<UNLOCKED> const& a = static_cast<AccessUnlocked<UNLOCKED> const&>(access);
   return a.is_writelocked();
 }
 
-void func_read_const(foo_t::crat const& access)
+template<typename UNLOCKED>
+void func_read_const(typename UNLOCKED::crat const& access) // ConstAccess<UnlockedBase, .. --> ConstAccess<ConstUnlockedBase, ..
 {
   std::cout << access->x << std::endl;
-  assert(is_readlocked(access) || is_writelocked(access));
+  assert(is_readlocked<UNLOCKED>(access) || is_writelocked<UNLOCKED>(access));
 }
 
-void func_read_and_then_write(foo_t::rat& access)
+template<typename UNLOCKED>
+void func_read_and_then_write(typename UNLOCKED::rat& access)
 {
+  static constexpr bool test_readwrite =
+      std::is_same_v<typename UNLOCKED::policy_type, policy::ReadWrite<TestRWMutex>> ||
+      std::is_same_v<typename UNLOCKED::policy_type, policy::ReadWriteRef<TestRWMutex>>;
   std::cout << access->x << std::endl;
-  assert(is_readlocked(access) || is_writelocked(access));
-#if TEST_READWRITE
-  foo_t::wat write_access(access);				// This might throw if is_readlocked(access).
-#else
-  foo_t::wat const& write_access = wat_cast(access);
-#endif
-  write_access->x = 6;
-  assert(is_writelocked(access));
+  assert(is_readlocked<UNLOCKED>(access) || is_writelocked<UNLOCKED>(access));
+  if constexpr (test_readwrite)
+  {
+    typename UNLOCKED::wat write_access(access);				// This might throw if is_readlocked(access).
+    write_access->x = 6;
+    assert(is_writelocked<UNLOCKED>(access));
+  }
+  else
+  {
+    typename UNLOCKED::wat const& write_access = wat_cast(access);
+    write_access->x = 6;
+    assert(is_writelocked<UNLOCKED>(access));
+  }
 }
 
-void func_write(foo_t::wat const& access)
+template<typename UNLOCKED>
+void func_write(typename UNLOCKED::wat const& access)
 {
   access->x = 5;
-  assert(is_writelocked(access));
+  assert(is_writelocked<UNLOCKED>(access));
 }
 
 template<typename onethread_t, typename primitive_t, typename readwrite_t>
@@ -259,6 +291,286 @@ void do_access_test(onethread_t& onethread, primitive_t& primitive, readwrite_t&
   }
 }
 
+template<typename UNLOCKED>
+void do_unlocked_test(UNLOCKED& wrapper)
+{
+  static constexpr bool test_readwrite =
+      std::is_same_v<typename UNLOCKED::policy_type, policy::ReadWrite<TestRWMutex>> ||
+      std::is_same_v<typename UNLOCKED::policy_type, policy::ReadWriteRef<TestRWMutex>>;
+  static constexpr bool test_readonly =
+      utils::is_specialization_of<UNLOCKED, ConstUnlockedBase>;
+
+  UNLOCKED const& const_wrapper(wrapper);
+
+  if constexpr (!test_readonly)
+  {
+    // Things that should compile.
+    {
+      // Getting write access to non-const wrapper.
+      typename UNLOCKED::wat write_access(wrapper);
+      write_access->x = 3;
+      assert(is_writelocked(wrapper));
+    }
+    assert(is_unlocked(wrapper));
+  }
+  {
+    // Getting read only access to const wrapper.
+    typename UNLOCKED::crat read_access(const_wrapper);
+    std::cout << read_access->x << std::endl;
+    assert(is_readlocked(wrapper));
+  }
+  assert(is_unlocked(wrapper));
+  {
+    // Creating a crat from a non-const wrapper.
+    typename UNLOCKED::crat read_access(wrapper);
+    std::cout << read_access->x << std::endl;
+    assert(is_readlocked(wrapper));
+  }
+  assert(is_unlocked(wrapper));
+  if constexpr (!test_readonly)
+  {
+    {
+      // Getting first read access to non-const wrapper, and then write access.
+      do
+      {
+        try
+        {
+          typename UNLOCKED::rat read_access(wrapper);
+          std::cout << read_access->x << std::endl;
+          assert(is_readlocked(wrapper));
+          if constexpr (test_readwrite)
+          {
+            typename UNLOCKED::wat write_access(read_access);		// This might throw.
+            write_access->x = 4;
+            assert(is_writelocked(wrapper));
+          }
+          else
+          {
+            typename UNLOCKED::wat const& write_access = wat_cast(read_access);
+            write_access->x = 4;
+            assert(is_writelocked(wrapper));
+          }
+        }
+        catch (std::exception const&)
+        {
+          if constexpr (test_readwrite)
+          {
+            wrapper.rd2wryield();				// Block until the other thread that tries to convert a read to write lock succeeded.
+            // Try again.
+            continue;
+          }
+        }
+        break;
+      }
+      while (test_readwrite);
+    }
+    assert(is_unlocked(wrapper));
+  }
+  {
+    // Passing a crat to func_read_const
+    typename UNLOCKED::crat read_access_const(const_wrapper);	// OK
+    func_read_const<UNLOCKED>(read_access_const);
+    assert(is_readlocked(wrapper));
+  }
+  assert(is_unlocked(wrapper));
+  if constexpr (!test_readonly)
+  {
+    {
+      // Passing a rat to func_read_const
+      typename UNLOCKED::rat read_access(wrapper);			// OK
+      func_read_const<UNLOCKED>(read_access);
+      assert(is_readlocked(wrapper));
+    }
+    assert(is_unlocked(wrapper));
+    {
+      // Passing a wat to func_read_const
+      typename UNLOCKED::wat write_access(wrapper);			// OK
+      func_read_const<UNLOCKED>(write_access);
+      assert(is_writelocked(wrapper));
+    }
+    assert(is_unlocked(wrapper));
+    {
+      do
+      {
+        try
+        {
+          // Passing a rat to func_read
+          typename UNLOCKED::rat read_access(wrapper);		// OK
+          func_read_and_then_write<UNLOCKED>(read_access);	// This might throw.
+          assert(is_readlocked(wrapper));
+        }
+        catch(std::exception const&)
+        {
+          if constexpr (test_readwrite)
+          {
+            wrapper.rd2wryield();
+            continue;
+          }
+        }
+        break;
+      }
+      while (test_readwrite);
+    }
+    if constexpr (test_readwrite)
+    {
+      assert(is_unlocked(wrapper));
+      {
+        typename UNLOCKED::w2rCarry carry(wrapper);
+        assert(is_unlocked(wrapper));
+        func_write<UNLOCKED>(typename UNLOCKED::wat(carry));
+        assert(is_readlocked(wrapper));
+        {
+          typename UNLOCKED::rat read_access(carry);
+          func_read_const<UNLOCKED>(read_access);
+          assert(is_readlocked(wrapper));
+        }
+        assert(is_readlocked(wrapper));
+      }
+    }
+    assert(is_unlocked(wrapper));
+    {
+      // Passing a wat to func_read
+      typename UNLOCKED::wat write_access(wrapper);			// OK
+      func_read_and_then_write<UNLOCKED>(write_access);
+      assert(is_writelocked(wrapper));
+    }
+    assert(is_unlocked(wrapper));
+    {
+      // Passing a wat to func_write
+      typename UNLOCKED::wat write_access(wrapper);			// OK
+      func_write<UNLOCKED>(write_access);
+      assert(is_writelocked(wrapper));
+    }
+    assert(is_unlocked(wrapper));
+  }
+
+  std::cout << "Success!" << std::endl;
+
+  // Things that should not compile:
+#ifdef TEST1
+  {
+    // Getting write access to a const wrapper.
+    typename UNLOCKED::wat fail(const_wrapper);			// TEST1 FAIL (error: no matching constructor for initialization of 'UNLOCKED::wat' (aka 'WriteAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex>>>')).
+  }
+#endif
+#ifdef TEST2
+  {
+    // Creating a rat from a const wrapper.
+    typename UNLOCKED::rat fail(const_wrapper);			// TEST2 FAIL (error: no matching constructor for initialization of 'typename UNLOCKED::rat' (aka 'ReadAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex>>>')).
+  }
+#endif
+#ifdef TEST3
+  {
+    // Getting write access from wat.
+    typename UNLOCKED::wat write_access(wrapper);			// OK
+    typename UNLOCKED::wat fail(write_access);			// TEST3 FAIL (error: call to implicitly-deleted copy constructor of 'UNLOCKED::wat' (aka 'WriteAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex>>>')).
+  }
+#endif
+#ifdef TEST4
+  {
+    // Getting write access from crat.
+    typename UNLOCKED::crat read_access_const(const_wrapper);	// OK
+    typename UNLOCKED::wat fail(read_access_const);			// TEST4 FAIL (error: no matching constructor for initialization of 'UNLOCKED::wat' (aka 'WriteAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex>>>')).
+  }
+#endif
+#ifdef TEST5
+  {
+    // Write to something that you only have read access too.
+    typename UNLOCKED::crat read_access_const(const_wrapper);	// OK
+    read_access_const->x = -1;				// TEST5 FAIL (error: cannot assign to return value because function 'operator->' returns a const value).
+  }
+#endif
+#ifdef TEST6
+  {
+    // Write to something that you only have read access too.
+    typename UNLOCKED::rat read_access(wrapper);			// OK
+    read_access->x = -1;				// TEST6 FAIL (error: cannot assign to return value because function 'operator->' returns a const value).
+  }
+#endif
+#ifdef TEST7
+  {
+    // Create crat from crat.
+    typename UNLOCKED::crat read_access_const(const_wrapper);	// OK
+    typename UNLOCKED::crat fail(read_access_const);		// TEST7 FAIL (error: call to deleted constructor of 'UNLOCKED::crat' (aka 'ConstReadAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex>>>')).
+  }
+#endif
+#ifdef TEST8
+  {
+    // Create crat from rat.
+    typename UNLOCKED::rat read_access(wrapper);			// OK
+    typename UNLOCKED::crat fail(read_access);			// TEST8 FAIL (error: call to deleted constructor of 'UNLOCKED::crat' (aka 'ConstReadAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex>>>')).
+  }
+#endif
+#ifdef TEST9
+  {
+    // Create crat from wat.
+    typename UNLOCKED::wat write_access(wrapper);			// OK
+    typename UNLOCKED::crat fail(write_access);			// TEST9 FAIL (error: call to deleted constructor of 'UNLOCKED::crat' (aka 'ConstReadAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex>>>')).
+  }
+#endif
+#ifdef TEST10
+  {
+    // Create rat from crat.
+    typename UNLOCKED::crat read_access_const(const_wrapper);	// OK
+    typename UNLOCKED::rat fail(read_access_const);			// TEST10 FAIL (error: no matching constructor for initialization of 'UNLOCKED::rat' (aka 'ReadAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex>>>')).
+  }
+#endif
+#ifdef TEST11
+  {
+    // Create rat from rat.
+    typename UNLOCKED::rat read_access(wrapper);			// OK
+    typename UNLOCKED::rat fail(read_access);			// TEST11 FAIL (error: call to implicitly-deleted copy constructor of 'UNLOCKED::rat' (aka 'ReadAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex>>>')).
+  }
+#endif
+#ifdef TEST12
+  {
+    // Create rat from wat.
+    typename UNLOCKED::wat write_access(wrapper);			// OK
+    typename UNLOCKED::rat fail(write_access);			// TEST12 FAIL (error: call to implicitly-deleted copy constructor of 'UNLOCKED::rat' (aka 'ReadAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex>>>')).
+  }
+#endif
+#ifdef TEST13
+  {
+    // Passing a crat to func_read.
+    typename UNLOCKED::crat read_access_const(const_wrapper);	// OK
+    func_read_and_then_write(read_access_const);	// TEST13 FAIL (error: no matching function for call to 'func_read_and_then_write').
+  }
+#endif
+#ifdef TEST14
+  {
+    // Passing a crat to func_write.
+    typename UNLOCKED::crat read_access_const(const_wrapper);	// OK
+    func_write(read_access_const);			// TEST14 FAIL (error: no matching function for call to 'func_write').
+  }
+#endif
+#ifdef TEST15
+  {
+    // Passing a rat to func_write.
+    typename UNLOCKED::rat read_access(wrapper);			// OK
+    func_write(read_access);				// TEST15 FAIL (error: no matching function for call to 'func_write').
+  }
+#endif
+#ifdef TEST16
+#error That was the last test
+#endif
+}
+
+struct Foo {
+  int x;
+};
+
+struct Doo : Foo {
+  int y;
+};
+
+struct FooRF : AIRefCount {
+  int x;
+};
+
+struct DooRF : FooRF {
+  int y;
+};
+
 int main()
 {
   std::cout << "Testing size and alignment... " << std::flush;
@@ -290,254 +602,76 @@ int main()
   std::cout << "OK" << std::endl;
 
   // ThreadSafe compile tests.
-  struct A { int x; };
-  using onethread_t = Unlocked<A, policy::OneThread>;
-  using primitive_t = Unlocked<A, policy::Primitive<std::mutex>>;
-  using readwrite_t = Unlocked<A, policy::ReadWrite<AIReadWriteMutex>>;
 
-  onethread_t onethread;
-  primitive_t primitive;
-  readwrite_t readwrite;
+  {
+    using unlocked_Foo_onethread_t = Unlocked<Foo, policy::OneThread>;
+    using unlocked_Foo_primitive_t = Unlocked<Foo, policy::Primitive<std::mutex>>;
+    using unlocked_Foo_readwrite_t = Unlocked<Foo, policy::ReadWrite<AIReadWriteMutex>>;
 
-  do_access_test(onethread, primitive, readwrite);
+    unlocked_Foo_onethread_t unlocked_Foo_onethread;
+    unlocked_Foo_primitive_t unlocked_Foo_primitive;
+    unlocked_Foo_readwrite_t unlocked_Foo_readwrite;
 
-  foo_t wrapper;
-  foo_t const& const_wrapper(wrapper);
+    do_access_test(unlocked_Foo_onethread, unlocked_Foo_primitive, unlocked_Foo_readwrite);
+  }
 
-  // Things that should compile.
   {
-    // Getting write access to non-const wrapper.
-    foo_t::wat write_access(wrapper);
-    write_access->x = 3;
-    assert(is_writelocked(wrapper));
-  }
-  assert(is_unlocked(wrapper));
-  {
-    // Getting read only access to const wrapper.
-    foo_t::crat read_access(const_wrapper);
-    std::cout << read_access->x << std::endl;
-    assert(is_readlocked(wrapper));
-  }
-  assert(is_unlocked(wrapper));
-  {
-    // Creating a crat from a non-const wrapper.
-    foo_t::crat read_access(wrapper);
-    std::cout << read_access->x << std::endl;
-    assert(is_readlocked(wrapper));
-  }
-  assert(is_unlocked(wrapper));
-  {
-    // Getting first read access to non-const wrapper, and then write access.
-#if TEST_READWRITE
-    for(;;)
-    {
-      try
-      {
-#endif
-	foo_t::rat read_access(wrapper);
-	std::cout << read_access->x << std::endl;
-	assert(is_readlocked(wrapper));
-#if TEST_READWRITE
-	foo_t::wat write_access(read_access);		// This might throw.
-#else
-	foo_t::wat const& write_access = wat_cast(read_access);
-#endif
-	write_access->x = 4;
-	assert(is_writelocked(wrapper));
-#if TEST_READWRITE
-      }
-      catch (std::exception const&)
-      {
-	wrapper.rd2wryield();				// Block until the other thread that tries to convert a read to write lock succeeded.
-	// Try again.
-	continue;
-      }
-      break;
-    }
-#endif
-  }
-  assert(is_unlocked(wrapper));
-  {
-    // Passing a crat to func_read_const
-    foo_t::crat read_access_const(const_wrapper);	// OK
-    func_read_const(read_access_const);
-    assert(is_readlocked(wrapper));
-  }
-  assert(is_unlocked(wrapper));
-  {
-    // Passing a rat to func_read_const
-    foo_t::rat read_access(wrapper);			// OK
-    func_read_const(read_access);
-    assert(is_readlocked(wrapper));
-  }
-  assert(is_unlocked(wrapper));
-  {
-    // Passing a wat to func_read_const
-    foo_t::wat write_access(wrapper);			// OK
-    func_read_const(write_access);
-    assert(is_writelocked(wrapper));
-  }
-  assert(is_unlocked(wrapper));
-  {
-#if TEST_READWRITE
-    for(;;)
-    {
-      try
-      {
-#endif
-	// Passing a rat to func_read
-	foo_t::rat read_access(wrapper);		// OK
-	func_read_and_then_write(read_access);		// This might throw.
-	assert(is_readlocked(wrapper));
-#if TEST_READWRITE
-      }
-      catch(std::exception const&)
-      {
-	wrapper.rd2wryield();
-	continue;
-      }
-      break;
-    }
-#endif
-  }
-#if TEST_READWRITE
-  assert(is_unlocked(wrapper));
-  {
-    foo_t::w2rCarry carry(wrapper);
-    assert(is_unlocked(wrapper));
-    func_write(foo_t::wat(carry));
-    assert(is_readlocked(wrapper));
-    {
-      foo_t::rat read_access(carry);
-      func_read_const(read_access);
-      assert(is_readlocked(wrapper));
-    }
-    assert(is_readlocked(wrapper));
-  }
-#endif
-  assert(is_unlocked(wrapper));
-  {
-    // Passing a wat to func_read
-    foo_t::wat write_access(wrapper);			// OK
-    func_read_and_then_write(write_access);
-    assert(is_writelocked(wrapper));
-  }
-  assert(is_unlocked(wrapper));
-  {
-    // Passing a wat to func_write
-    foo_t::wat write_access(wrapper);			// OK
-    func_write(write_access);
-    assert(is_writelocked(wrapper));
-  }
-  assert(is_unlocked(wrapper));
+    using unlocked_Doo_onethread_t = Unlocked<Doo, policy::OneThread>;
+    using unlocked_Doo_primitive_t = Unlocked<Doo, policy::Primitive<TestMutex>>;
+    using unlocked_Doo_readwrite_t = Unlocked<Doo, policy::ReadWrite<TestRWMutex>>;
 
-  std::cout << "Success!" << std::endl;
+    unlocked_Doo_onethread_t unlocked_Doo_onethread;
+    unlocked_Doo_primitive_t unlocked_Doo_primitive;
+    unlocked_Doo_readwrite_t unlocked_Doo_readwrite;
+    // Test copy constructor.
+    unlocked_Doo_readwrite_t unlocked_Doo_readwrite2(unlocked_Doo_readwrite);
 
-  // Things that should not compile:
-#ifdef TEST1
-  {
-    // Getting write access to a const wrapper.
-    foo_t::wat fail(const_wrapper);			// TEST1 FAIL (error: no matching constructor for initialization of 'foo_t::wat' (aka 'WriteAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex>>>')).
+    do_unlocked_test(unlocked_Doo_onethread);
+    do_unlocked_test(unlocked_Doo_primitive);
+    do_unlocked_test(unlocked_Doo_readwrite);
+
+    UnlockedBase<Foo, unlocked_Doo_onethread_t::policy_type> unlockedbase_Foo_onethread(unlocked_Doo_onethread);
+    UnlockedBase<Foo, unlocked_Doo_primitive_t::policy_type> unlockedbase_Foo_primitive(unlocked_Doo_primitive);
+    UnlockedBase<Foo, unlocked_Doo_readwrite_t::policy_type> unlockedbase_Foo_readwrite(unlocked_Doo_readwrite);
+    // Test copy constructor.
+    UnlockedBase<Foo, unlocked_Doo_readwrite_t::policy_type> unlockedbase_Foo_readwrite2(unlockedbase_Foo_readwrite);
+
+    do_access_test(unlockedbase_Foo_onethread, unlockedbase_Foo_primitive, unlockedbase_Foo_readwrite);
+
+    do_unlocked_test(unlockedbase_Foo_onethread);
+    do_unlocked_test(unlockedbase_Foo_primitive);
+    do_unlocked_test(unlockedbase_Foo_readwrite);
+
+    ConstUnlockedBase<Foo, unlocked_Doo_onethread_t::policy_type> const_unlockedbase_Foo_onethread(unlocked_Doo_onethread);
+    ConstUnlockedBase<Foo, unlocked_Doo_primitive_t::policy_type> const_unlockedbase_Foo_primitive(unlocked_Doo_primitive);
+    ConstUnlockedBase<Foo, unlocked_Doo_readwrite_t::policy_type> const_unlockedbase_Foo_readwrite(unlocked_Doo_readwrite);
+    // Test copy constructor.
+    ConstUnlockedBase<Foo, unlocked_Doo_readwrite_t::policy_type> const_unlockedbase_Foo_readwrite2(const_unlockedbase_Foo_readwrite);
+
+    do_unlocked_test(const_unlockedbase_Foo_onethread);
+    do_unlocked_test(const_unlockedbase_Foo_primitive);
+    do_unlocked_test(const_unlockedbase_Foo_readwrite);
   }
-#endif
-#ifdef TEST2
-  {
-    // Creating a rat from a const wrapper.
-    foo_t::rat fail(const_wrapper);			// TEST2 FAIL (error: no matching constructor for initialization of 'foo_t::rat' (aka 'ReadAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex>>>')).
-  }
-#endif
-#ifdef TEST3
-  {
-    // Getting write access from wat.
-    foo_t::wat write_access(wrapper);			// OK
-    foo_t::wat fail(write_access);			// TEST3 FAIL (error: call to implicitly-deleted copy constructor of 'foo_t::wat' (aka 'WriteAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex>>>')).
-  }
-#endif
-#ifdef TEST4
-  {
-    // Getting write access from crat.
-    foo_t::crat read_access_const(const_wrapper);	// OK
-    foo_t::wat fail(read_access_const);			// TEST4 FAIL (error: no matching constructor for initialization of 'foo_t::wat' (aka 'WriteAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex>>>')).
-  }
-#endif
-#ifdef TEST5
-  {
-    // Write to something that you only have read access too.
-    foo_t::crat read_access_const(const_wrapper);	// OK
-    read_access_const->x = -1;				// TEST5 FAIL (error: cannot assign to return value because function 'operator->' returns a const value).
-  }
-#endif
-#ifdef TEST6
-  {
-    // Write to something that you only have read access too.
-    foo_t::rat read_access(wrapper);			// OK
-    read_access->x = -1;				// TEST6 FAIL (error: cannot assign to return value because function 'operator->' returns a const value).
-  }
-#endif
-#ifdef TEST7
-  {
-    // Create crat from crat.
-    foo_t::crat read_access_const(const_wrapper);	// OK
-    foo_t::crat fail(read_access_const);		// TEST7 FAIL (error: call to deleted constructor of 'foo_t::crat' (aka 'ConstReadAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex>>>')).
-  }
-#endif
-#ifdef TEST8
-  {
-    // Create crat from rat.
-    foo_t::rat read_access(wrapper);			// OK
-    foo_t::crat fail(read_access);			// TEST8 FAIL (error: call to deleted constructor of 'foo_t::crat' (aka 'ConstReadAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex>>>')).
-  }
-#endif
-#ifdef TEST9
-  {
-    // Create crat from wat.
-    foo_t::wat write_access(wrapper);			// OK
-    foo_t::crat fail(write_access);			// TEST9 FAIL (error: call to deleted constructor of 'foo_t::crat' (aka 'ConstReadAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex>>>')).
-  }
-#endif
-#ifdef TEST10
-  {
-    // Create rat from crat.
-    foo_t::crat read_access_const(const_wrapper);	// OK
-    foo_t::rat fail(read_access_const);			// TEST10 FAIL (error: no matching constructor for initialization of 'foo_t::rat' (aka 'ReadAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex>>>')).
-  }
-#endif
-#ifdef TEST11
-  {
-    // Create rat from rat.
-    foo_t::rat read_access(wrapper);			// OK
-    foo_t::rat fail(read_access);			// TEST11 FAIL (error: call to implicitly-deleted copy constructor of 'foo_t::rat' (aka 'ReadAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex>>>')).
-  }
-#endif
-#ifdef TEST12
-  {
-    // Create rat from wat.
-    foo_t::wat write_access(wrapper);			// OK
-    foo_t::rat fail(write_access);			// TEST12 FAIL (error: call to implicitly-deleted copy constructor of 'foo_t::rat' (aka 'ReadAccess<threadsafe::Unlocked<Foo, threadsafe::policy::ReadWrite<TestRWMutex>>>')).
-  }
-#endif
-#ifdef TEST13
-  {
-    // Passing a crat to func_read.
-    foo_t::crat read_access_const(const_wrapper);	// OK
-    func_read_and_then_write(read_access_const);	// TEST13 FAIL (error: no matching function for call to 'func_read_and_then_write').
-  }
-#endif
-#ifdef TEST14
-  {
-    // Passing a crat to func_write.
-    foo_t::crat read_access_const(const_wrapper);	// OK
-    func_write(read_access_const);			// TEST14 FAIL (error: no matching function for call to 'func_write').
-  }
-#endif
-#ifdef TEST15
-  {
-    // Passing a rat to func_write.
-    foo_t::rat read_access(wrapper);			// OK
-    func_write(read_access);				// TEST15 FAIL (error: no matching function for call to 'func_write').
-  }
-#endif
-#ifdef TEST16
-#error That was the last test
-#endif
+
+  using unlocked_DooRF_onethread_t = Unlocked<DooRF, policy::OneThread>;
+  using unlocked_DooRF_primitive_t = Unlocked<DooRF, policy::Primitive<TestMutex>>;
+  using unlocked_DooRF_readwrite_t = Unlocked<DooRF, policy::ReadWrite<TestRWMutex>>;
+
+  boost::intrusive_ptr<unlocked_DooRF_onethread_t> unlocked_DooRF_onethread = new unlocked_DooRF_onethread_t;
+  boost::intrusive_ptr<unlocked_DooRF_primitive_t> unlocked_DooRF_primitive = new unlocked_DooRF_primitive_t;
+  boost::intrusive_ptr<unlocked_DooRF_readwrite_t> unlocked_DooRF_readwrite = new unlocked_DooRF_readwrite_t;
+
+  using unlockedbase_FooRF_onethread_t = UnlockedBase<FooRF, unlocked_DooRF_onethread_t::policy_type>;
+  using unlockedbase_FooRF_primitive_t = UnlockedBase<FooRF, unlocked_DooRF_primitive_t::policy_type>;
+  using unlockedbase_FooRF_readwrite_t = UnlockedBase<FooRF, unlocked_DooRF_readwrite_t::policy_type>;
+
+  unlockedbase_FooRF_onethread_t unlockedbase_FooRF_onethread(*unlocked_DooRF_onethread);
+  unlockedbase_FooRF_primitive_t unlockedbase_FooRF_primitive(*unlocked_DooRF_primitive);
+  unlockedbase_FooRF_readwrite_t unlockedbase_FooRF_readwrite(*unlocked_DooRF_readwrite);
+  // Test copy constructor.
+  unlockedbase_FooRF_readwrite_t unlockedbase_FooRF_readwrite2(unlockedbase_FooRF_readwrite);
+
+  do_unlocked_test(unlockedbase_FooRF_onethread);
+  do_unlocked_test(unlockedbase_FooRF_primitive);
+  do_unlocked_test(unlockedbase_FooRF_readwrite);
 }
