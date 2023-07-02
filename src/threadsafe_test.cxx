@@ -612,6 +612,13 @@ int main()
     unlocked_Foo_primitive_t unlocked_Foo_primitive;
     unlocked_Foo_readwrite_t unlocked_Foo_readwrite;
 
+    // Copying is only possible using an access type.
+    unlocked_Foo_readwrite_t unlocked_Foo_readwrite3(unlocked_Foo_readwrite_t::crat{unlocked_Foo_readwrite});
+    // Moving is possible without.
+    unlocked_Foo_onethread_t unlocked_Foo_onethread2(std::move(unlocked_Foo_onethread));
+    unlocked_Foo_primitive_t unlocked_Foo_primitive2(std::move(unlocked_Foo_primitive));
+    unlocked_Foo_readwrite_t unlocked_Foo_readwrite2(std::move(unlocked_Foo_readwrite));
+
     do_access_test(unlocked_Foo_onethread, unlocked_Foo_primitive, unlocked_Foo_readwrite);
   }
 
@@ -623,8 +630,9 @@ int main()
     unlocked_Doo_onethread_t unlocked_Doo_onethread;
     unlocked_Doo_primitive_t unlocked_Doo_primitive;
     unlocked_Doo_readwrite_t unlocked_Doo_readwrite;
-    // Test copy constructor.
-    unlocked_Doo_readwrite_t unlocked_Doo_readwrite2(unlocked_Doo_readwrite);
+    // Test "copy constructor".
+    unlocked_Doo_readwrite_t unlocked_Doo_readwrite2(unlocked_Doo_readwrite_t::crat{unlocked_Doo_readwrite});
+    unlocked_Doo_readwrite_t unlocked_Doo_readwrite3(unlocked_Doo_readwrite_t::wat{unlocked_Doo_readwrite});
 
     do_unlocked_test(unlocked_Doo_onethread);
     do_unlocked_test(unlocked_Doo_primitive);
