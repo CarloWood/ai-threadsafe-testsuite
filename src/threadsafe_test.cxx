@@ -1,4 +1,5 @@
 #include "sys.h"
+#include "utils/threading/ObjectTracker.h"
 #include "threadsafe/threadsafe.h"
 #include "threadsafe/AIReadWriteMutex.h"
 
@@ -571,6 +572,21 @@ struct DooRF : FooRF {
   int y;
 };
 
+struct locked_TFoo;
+struct TFoo;
+
+using TFooTracker = utils::threading::ObjectTracker<TFoo, threadsafe::Unlocked<locked_TFoo, threadsafe::policy::ReadWrite<AIReadWriteMutex>>>;
+
+struct locked_TFoo /*: utils::threading::TrackedObject<TFooTracker>*/ {
+  int x;
+};
+
+struct TFoo :
+  threadsafe::Unlocked<locked_TFoo, threadsafe::policy::ReadWrite<AIReadWriteMutex>>,
+  utils::threading::TrackedObject<TFoo, TFooTracker>
+{
+};
+
 int main()
 {
   std::cout << "Testing size and alignment... " << std::flush;
@@ -682,4 +698,25 @@ int main()
   do_unlocked_test(unlockedbase_FooRF_onethread);
   do_unlocked_test(unlockedbase_FooRF_primitive);
   do_unlocked_test(unlockedbase_FooRF_readwrite);
+
+  // Test thread-safe ObjectTracker.
+  TFoo tfoo;
+  TFooTracker& tfoo_tracker = tfoo.tracker();
+
+  locked_TFoo* hack_access;
+
+  {
+    TFoo::wat tfoo_w{tfoo};
+    tfoo_w->x = 1234;
+    hack_access = &*tfoo_w;
+  }
+
+  TFoo tfoo2(std::move(tfoo));
+  hack_access->x = 666;
+
+  {
+    TFooTracker::crat tfoo_r{tfoo_tracker.tracked_rat()};
+    std::cout << "tfoo_r->x = " << tfoo_r->x << std::endl;
+    ASSERT(tfoo_r->x == 1234);
+  }
 }
