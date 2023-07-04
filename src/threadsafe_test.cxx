@@ -1,6 +1,5 @@
 #include "sys.h"
-#include "utils/threading/ObjectTracker.h"
-#include "threadsafe/threadsafe.h"
+#include "threadsafe/ObjectTracker.h"
 #include "threadsafe/AIReadWriteMutex.h"
 
 #include <iostream>
@@ -573,18 +572,12 @@ struct DooRF : FooRF {
 };
 
 struct locked_TFoo;
-struct TFoo;
 
-using TFooTracker = utils::threading::ObjectTracker<TFoo, threadsafe::Unlocked<locked_TFoo, threadsafe::policy::ReadWrite<AIReadWriteMutex>>>;
+using TFoo = threadsafe::UnlockedTrackedObject<locked_TFoo, threadsafe::policy::ReadWrite<AIReadWriteMutex>>;
+using TFooTracker = threadsafe::ObjectTracker<TFoo>;
 
-struct locked_TFoo /*: utils::threading::TrackedObject<TFooTracker>*/ {
+struct locked_TFoo : threadsafe::TrackedObject<TFoo, TFooTracker> {
   int x;
-};
-
-struct TFoo :
-  threadsafe::Unlocked<locked_TFoo, threadsafe::policy::ReadWrite<AIReadWriteMutex>>,
-  utils::threading::TrackedObject<TFoo, TFooTracker>
-{
 };
 
 int main()
@@ -715,8 +708,22 @@ int main()
   hack_access->x = 666;
 
   {
-    TFooTracker::crat tfoo_r{tfoo_tracker.tracked_rat()};
+    auto tfoo_r{tfoo_tracker.tracked_rat()};
     std::cout << "tfoo_r->x = " << tfoo_r->x << std::endl;
     ASSERT(tfoo_r->x == 1234);
+  }
+  std::weak_ptr<TFooTracker> tfoo_tracker2 = tfoo2;
+  {
+    auto tracker = tfoo_tracker2.lock();
+    auto tfoo_w{tracker->tracked_wat()};
+    std::cout << "tfoo_w->x = " << tfoo_w->x << std::endl;
+    ASSERT(tfoo_w->x == 1234);
+    tfoo_w->x = 5678;
+  }
+  TFoo tfoo3(std::move(tfoo2));
+  {
+    TFoo::crat tfoo_r{tfoo3};
+    std::cout << "tfoo_w->x = " << tfoo_r->x << std::endl;
+    ASSERT(tfoo_r->x == 5678);
   }
 }
