@@ -1,6 +1,7 @@
 #include "sys.h"
 #include "threadsafe/ObjectTracker.h"
 #include "threadsafe/AIReadWriteMutex.h"
+#include "threadsafe/ObjectTracker.inl.h"
 
 #include <iostream>
 #include <cassert>
@@ -574,7 +575,7 @@ struct DooRF : FooRF {
 struct locked_TFoo;
 
 using TFoo = threadsafe::UnlockedTrackedObject<locked_TFoo, threadsafe::policy::ReadWrite<AIReadWriteMutex>>;
-using TFooTracker = threadsafe::ObjectTracker<TFoo>;
+using TFooTracker = threadsafe::ObjectTracker<TFoo, locked_TFoo, threadsafe::policy::ReadWrite<AIReadWriteMutex>>;
 
 struct locked_TFoo : threadsafe::TrackedObject<TFoo, TFooTracker> {
   int x;
